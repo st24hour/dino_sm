@@ -1,0 +1,28 @@
+FROM pytorch/pytorch:1.12.1-cuda11.3-cudnn8-devel
+RUN apt-get update
+RUN apt-get upgrade -y
+RUN pip install --upgrade pip
+RUN pip install gpustat
+RUN pip install scipy
+RUN pip install matplotlib
+RUN pip install scikit-learn
+RUN pip install seaborn
+RUN pip install openpyxl
+RUN pip install xlsxwriter
+RUN pip install pandas
+RUN pip install tensorboard_logger
+RUN pip install tensorboard
+RUN pip install torchsummary
+RUN pip install pytorch-model-summary
+RUN pip install simplejpeg
+RUN pip install h5py
+RUN pip install opencv-python
+RUN apt-get -y install libgl1-mesa-glx
+RUN pip install openslide-python
+RUN apt-get update -y
+RUN apt-get install openslide-tools -y
+RUN apt-get install python-openslide -y
+RUN pip install tensorflow
+RUN pip install tensorboardX
+RUN pip install pytorch_lightning
+RUN pip install sagemaker_training

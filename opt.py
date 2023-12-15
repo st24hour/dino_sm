@@ -3,14 +3,14 @@ import argparse
 def get_opts():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--root_dir', type=str, required=True,
-                        help='root directory of images')
+    # parser.add_argument('--root_dir', type=str, required=True,
+    #                     help='root directory of images')
 
     # model parameters
     parser.add_argument('--arch', default='small', type=str,
                         choices=['tiny', 'small', 'base'],
                         help="which vit to train.")
-    parser.add_argument('--patch_size', default=16, type=int,
+    parser.add_argument('--patch_size', default=32, type=int,
                         help="""Size in pixels of input square patches - default 16 (for 16x16 patches).
                         Using smaller values leads to better performance but requires more memory.
                         Applies only for ViTs (vit_tiny, vit_small and vit_base). If <16, we recommend disabling
@@ -44,7 +44,7 @@ def get_opts():
     parser.add_argument('--warmup_teacher_temp', default=0.04, type=float,
                         help="""Initial value for the teacher temperature: 0.04 works well in most cases.
                         Try decreasing it if the training loss does not decrease.""")
-    parser.add_argument('--final_teacher_temp', default=0.07, type=float,
+    parser.add_argument('--final_teacher_temp', default=0.04, type=float,
                         help="""Final value (after linear warmup) of the teacher temperature.
                         For most experiments, anything above 0.07 is unstable. We recommend
                         starting with the default value of 0.04 and increase this slightly if needed.""")
@@ -52,7 +52,7 @@ def get_opts():
                         help='Number of warmup epochs for the teacher temperature.')
 
     # training parameters
-    parser.add_argument('--batch_size', type=int, default=168,
+    parser.add_argument('--batch_size', type=int, default=128,
                         help='batch size per gpu')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers')
@@ -91,5 +91,21 @@ def get_opts():
 
     parser.add_argument('--exp_name', type=str, default='exp',
                         help='experiment name')
+
+    # JS
+    parser.add_argument('--data_path', default='/shared/j.jang/pathai/data/TCGA-lung-patches-256', type=str,
+                            help='Please specify path to the patches.')
+    #parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
+    parser.add_argument('--output_dir', default="/shared/j.jang/pathai/HIPT/dino_ckpt-test/", type=str, help='Path to save logs and checkpoints.')
+    
+    parser.add_argument('--process_list_csv', default='/shared/j.jang/pathai/data/TCGA-lung-patches-256/process_list_autogen.csv', type=str, help='autogen csv file')
+    parser.add_argument('--split_csv', default='/shared/j.jang/pathai/data/TCGA-lung-luad+lusc-TMB-323-splits/task_1_tumor_vs_normal_100/splits_0.csv', type=str, help='split csv file')
+    
+    parser.add_argument('--slide_ext', type=str, default='.svs')
+    parser.add_argument('--data_slide_dir', type=str, default='/shared/j.jang/pathai/data/TCGA-lung/',
+                        help="SLIDE_DIRECTORY")
+
+    parser.add_argument('--saveckp_freq', default=1, type=int, help='Save checkpoint every x epochs.')
+    parser.add_argument('--seed', default=0, type=int, help='Random seed.')    
 
     return parser.parse_args()

@@ -25,6 +25,24 @@ import pandas as pd
 from vision_transformer3 import vision_transformer3 
 from collections import OrderedDict
 
+# import lightning as pl
+# import smdistributed.dataparallel.torch.torch_smddp 
+# from pytorch_lightning.fabric.plugins.environments.lightning import LightningEnvironment
+
+try:
+    from sagemaker_training import environment
+    #import smdistributed.dataparallel.torch.torch_smddp
+    from pytorch_lightning.plugins.environments import LightningEnvironment    
+    SMDDP = True
+except:
+    print('Using pytorch ddp.')
+    SMDDP = False
+
+env = LightningEnvironment()
+env.world_size = lambda: int(os.environ["WORLD_SIZE"])
+env.global_rank = lambda: int(os.environ["RANK"])
+
+
 def fix_random_seeds(seed=31):
     """
     Fix random seeds.
@@ -293,6 +311,12 @@ if __name__ == '__main__':
     logger = TensorBoardLogger(save_dir=hparams.output_dir,
                                name=hparams.exp_name,
                                default_hp_metric=False)
+    
+    ddp = DDPStrategy(
+        cluster_environment=env, 
+        process_group_backend="smddp", 
+        accelerator="gpu"
+    )
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
                       callbacks=callbacks,
@@ -301,8 +325,9 @@ if __name__ == '__main__':
                       precision=16 if hparams.fp16 else 32,
                       accelerator='auto',
                       devices=hparams.num_gpus,
-                      strategy=DDPStrategy(find_unused_parameters=False)
-                               if hparams.num_gpus>1 else None,
+                    #   strategy=DDPStrategy(find_unused_parameters=False)
+                    #            if hparams.num_gpus>1 else None,
+                      strategy=ddp,
                       num_sanity_val_steps=1)
 
     trainer.fit(system, ckpt_path=hparams.ckpt_path)
