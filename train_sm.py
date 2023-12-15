@@ -146,9 +146,9 @@ class DINOSystem(LightningModule):
         split_path = args.split_csv
 
         bags_dataset = pd.read_csv(csv_path)
-        split_set = pd.read_csv(split_path)
-        val_slides = ((split_set['val']).dropna()).to_list()
-        test_slides = ((split_set['test']).dropna()).to_list()
+        # split_set = pd.read_csv(split_path)
+        # val_slides = ((split_set['val']).dropna()).to_list()
+        # test_slides = ((split_set['test']).dropna()).to_list()
         # total = len(bags_dataset)
         total = 2
 
