@@ -31,12 +31,12 @@ def get_opts():
                         We recommend setting a higher value with small batches: for example use 0.9995 with batch size of 256.""")
 
     # augmentation parameters
-    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.25, 1.),
+    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.4, 1.),
                         help="""Scale range of the cropped image before resizing, relative to the origin image.
                         Used for large global view cropping.""")
     parser.add_argument('--local_crops_number', type=int, default=8,
                         help="""Number of small local views to generate.""")
-    parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.25),
+    parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.4),
                         help="""Scale range of the cropped image before resizing, relative to the origin image.
                         Used for small local view cropping of multi-crop.""")
 
@@ -48,7 +48,7 @@ def get_opts():
                         help="""Final value (after linear warmup) of the teacher temperature.
                         For most experiments, anything above 0.07 is unstable. We recommend
                         starting with the default value of 0.04 and increase this slightly if needed.""")
-    parser.add_argument('--warmup_teacher_temp_epochs', default=30, type=int,
+    parser.add_argument('--warmup_teacher_temp_epochs', default=0, type=int,
                         help='Number of warmup epochs for the teacher temperature.')
 
     # training parameters
@@ -68,7 +68,7 @@ def get_opts():
                         help="""Final value of the weight decay.
                         We use a cosine schedule for WD and using a larger decay by
                         the end of training improves performance for ViTs.""")
-    parser.add_argument('--clip_grad', type=float, default=0.,
+    parser.add_argument('--clip_grad', type=float, default=3.,
                         help="""Clipping with norm .3 ~ 1.0 can
                         help optimization for larger ViT architectures. 0 for disabling.""")
 

@@ -16,6 +16,7 @@ RUN pip install torchsummary
 RUN pip install pytorch-model-summary
 RUN pip install simplejpeg
 RUN pip install h5py
+RUN pip install imageio
 RUN pip install opencv-python
 RUN apt-get -y install libgl1-mesa-glx
 RUN pip install openslide-python
@@ -26,3 +27,6 @@ RUN pip install tensorflow
 RUN pip install tensorboardX
 RUN pip install pytorch_lightning
 RUN pip install sagemaker_training
+RUN pip install einops
+RUN pip install timm
+RUN pip install ipykernel

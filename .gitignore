@@ -1,3 +1,7 @@
+# js
+docker*.sh
+load_checkpoint.ipynb
+
 ckpts/
 logs/
 *.pth
