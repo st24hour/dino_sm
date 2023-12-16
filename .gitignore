@@ -1,5 +1,6 @@
 # js
-*.sh
+docker1.sh
+train1.sh
 
 ckpts/
 logs/
