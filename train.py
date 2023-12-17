@@ -17,7 +17,7 @@ from losses import DINOLoss
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 
 # js
 import os
@@ -294,9 +294,12 @@ if __name__ == '__main__':
                                name=hparams.exp_name,
                                default_hp_metric=False)
 
+    logger2 = CSVLogger(save_dir=hparams.output_dir,
+                               name=hparams.exp_name)
+
     trainer = Trainer(max_epochs=hparams.num_epochs,
                       callbacks=callbacks,
-                      logger=logger,
+                      logger=[logger, logger2],
                       enable_model_summary=False,
                       precision=16 if hparams.fp16 else 32,
                       accelerator='auto',
