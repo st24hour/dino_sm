@@ -136,8 +136,8 @@ class DINOSystem(LightningModule):
         split_set = pd.read_csv(split_path)
         val_slides = ((split_set['val']).dropna()).to_list()
         test_slides = ((split_set['test']).dropna()).to_list()
-        # total = len(bags_dataset)
-        total = 2
+        total = len(bags_dataset)
+        # total = 2
 
         h5_file_paths, slide_file_paths = [], []
         for bag_candidate_idx in range(total):

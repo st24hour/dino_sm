@@ -10,6 +10,7 @@ RUN pip install seaborn
 RUN pip install openpyxl
 RUN pip install xlsxwriter
 RUN pip install pandas
+RUN pip install einops
 RUN pip install tensorboard_logger
 RUN pip install tensorboard
 RUN pip install torchsummary
@@ -25,8 +26,9 @@ RUN apt-get install openslide-tools -y
 RUN apt-get install python-openslide -y
 RUN pip install tensorflow
 RUN pip install tensorboardX
-RUN pip install pytorch_lightning
-RUN pip install sagemaker_training
-RUN pip install einops
 RUN pip install timm
+RUN pip install pytorch_lightning
+RUN pip install s3fs
+RUN pip install sagemaker_training
 RUN pip install ipykernel
+RUN pip install --upgrade botocore

@@ -1,6 +1,7 @@
 # js
 docker1.sh
 train1.sh
+train_sm_orin.py
 
 ckpts/
 logs/

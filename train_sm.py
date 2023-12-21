@@ -1,3 +1,5 @@
+# GCP에서도 돌아가게 수정해놔서 GCP에서 돌릴 때 train.py말고 train_sm.py로 돌리면 됨
+
 import torch
 import numpy as np
 from matplotlib import cm
@@ -18,7 +20,7 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
-
+from pytorch_lightning import LightningDataModule
 # js
 import os
 import pandas as pd
@@ -31,7 +33,7 @@ from collections import OrderedDict
 
 try:
     from sagemaker_training import environment
-    #import smdistributed.dataparallel.torch.torch_smddp
+    import smdistributed.dataparallel.torch.torch_smddp
     from pytorch_lightning.plugins.environments import LightningEnvironment    
     SMDDP = True
 except:
@@ -89,6 +91,76 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep,
     return schedule
 
 
+class DINOData(LightningDataModule):
+    def __init__(self, hparams):
+        super().__init__()
+        self.params = hparams
+        
+    def setup(self, stage=None):
+        print('loading image paths ...')
+
+        #########################################################
+        csv_path = self.params.process_list_csv
+        split_path = self.params.split_csv
+
+        bags_dataset = pd.read_csv(csv_path)
+        # split_set = pd.read_csv(split_path)
+        # val_slides = ((split_set['val']).dropna()).to_list()
+        # test_slides = ((split_set['test']).dropna()).to_list()
+        # total = len(bags_dataset)
+        total = 2
+
+        h5_file_paths, slide_file_paths = [], []
+        for bag_candidate_idx in range(total):
+            if bags_dataset.loc[bag_candidate_idx, 'status'] == 'failed_seg':
+                continue
+            #if bags_dataset['slide_id'][bag_candidate_idx] in val_slides:
+            #    continue
+            #if bags_dataset['slide_id'][bag_candidate_idx] in test_slides:
+            #    continue
+
+            patient_id, wsi_id = bags_dataset['slide_id'][bag_candidate_idx].split('/')
+            slide_id = bags_dataset['slide_id'][bag_candidate_idx].split(self.params.slide_ext)[0]
+            bag_name = slide_id+'.h5'
+            h5_file_paths.append(os.path.join(self.params.data_path, 'patches', bag_name))
+            slide_file_paths.append(os.path.join(self.params.data_slide_dir, slide_id + self.params.slide_ext))
+            #print('\ndataset generation progress: {}/{}'.format(bag_candidate_idx, total))
+            #print(slide_id)
+
+
+        transform = DataAugmentationDINO(self.params.global_crops_scale,
+                                         self.params.local_crops_scale,
+                                         self.params.local_crops_number)
+        eval_transform = ValTransform()
+        # self.train_dataset = Patches_Dataset(self.hparams.root_dir, 'train')
+        self.train_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=transform, pretrained=True, split='train')
+        self.val_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=eval_transform, pretrained=True, split='val')
+        
+        self.dataset_size = len(self.train_dataset)
+        print(f'{len(self.train_dataset)} image paths loaded!')
+
+        # self.val_dataset = copy.deepcopy(self.train_dataset)
+        # self.val_dataset.split = 'val'
+
+        ################################################################
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset,
+                                 shuffle=True,
+                                 num_workers=self.params.num_workers,
+                                 batch_size=self.params.batch_size,
+                                 pin_memory=True,
+                                 drop_last=True)
+
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset,
+                          shuffle=False,
+                          num_workers=self.params.num_workers,
+                          batch_size=1, # validate one image
+                          pin_memory=True)
+
+
+
 class DINOSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
@@ -137,53 +209,17 @@ class DINOSystem(LightningModule):
                              hparams.final_teacher_temp,
                              hparams.warmup_teacher_temp_epochs,
                              hparams.num_epochs)
-
-    def setup(self, stage=None):
-        print('loading image paths ...')
-
-        #########################################################
-        csv_path = hparams.process_list_csv
-        split_path = hparams.split_csv
-
-        bags_dataset = pd.read_csv(csv_path)
-        # split_set = pd.read_csv(split_path)
-        # val_slides = ((split_set['val']).dropna()).to_list()
-        # test_slides = ((split_set['test']).dropna()).to_list()
-        # total = len(bags_dataset)
-        total = 2
-
-        h5_file_paths, slide_file_paths = [], []
-        for bag_candidate_idx in range(total):
-            if bags_dataset.loc[bag_candidate_idx, 'status'] == 'failed_seg':
-                continue
-            #if bags_dataset['slide_id'][bag_candidate_idx] in val_slides:
-            #    continue
-            #if bags_dataset['slide_id'][bag_candidate_idx] in test_slides:
-            #    continue
-
-            patient_id, wsi_id = bags_dataset['slide_id'][bag_candidate_idx].split('/')
-            slide_id = bags_dataset['slide_id'][bag_candidate_idx].split(hparams.slide_ext)[0]
-            bag_name = slide_id+'.h5'
-            h5_file_paths.append(os.path.join(hparams.data_path, 'patches', bag_name))
-            slide_file_paths.append(os.path.join(hparams.data_slide_dir, slide_id + hparams.slide_ext))
-            #print('\ndataset generation progress: {}/{}'.format(bag_candidate_idx, total))
-            #print(slide_id)
-
-
-        transform = DataAugmentationDINO(hparams.global_crops_scale,
-                                         hparams.local_crops_scale,
-                                         hparams.local_crops_number)
-        eval_transform = ValTransform()
-        # self.train_dataset = Patches_Dataset(hparams.root_dir, 'train')
-        self.train_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=transform, pretrained=True, split='train')
-        self.val_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=eval_transform, pretrained=True, split='val')
-
-        print(f'{len(self.train_dataset)} image paths loaded!')
-
-        # self.val_dataset = copy.deepcopy(self.train_dataset)
-        # self.val_dataset.split = 'val'
-
-        ################################################################
+        
+        # define schedulers based on number of iterations
+        niter_per_ep = hparams.niter_per_ep
+        self.lr_sch = cosine_scheduler(self.hparams.lr, 1e-6, self.hparams.num_epochs, niter_per_ep,
+                                       self.hparams.warmup_epochs)
+        # weight decay scheduler
+        self.wd_sch = cosine_scheduler(self.hparams.weight_decay_init, self.hparams.weight_decay_end,
+                                       self.hparams.num_epochs, niter_per_ep)
+        # momentum scheduler
+        self.mm_sch = cosine_scheduler(self.hparams.momentum_teacher, 1.0,
+                                       self.hparams.num_epochs, niter_per_ep)
 
 
     def configure_optimizers(self):
@@ -199,38 +235,10 @@ class DINOSystem(LightningModule):
         param_groups = [{'params': regularized},
                         {'params': not_regularized, 'weight_decay': 0.}]
 
-        self.lr = hparams.lr * (hparams.batch_size*hparams.num_gpus/256)
+        self.lr = self.hparams.lr * (self.hparams.batch_size*self.hparams.num_gpus * self.hparams.world_size/256)
         opt = torch.optim.AdamW(param_groups, self.lr)
 
         return opt
-
-    def train_dataloader(self):
-        self.loader = DataLoader(self.train_dataset,
-                                 shuffle=True,
-                                 num_workers=hparams.num_workers,
-                                 batch_size=hparams.batch_size,
-                                 pin_memory=True,
-                                 drop_last=True)
-
-        # define schedulers based on number of iterations
-        niter_per_ep = len(self.loader)
-        self.lr_sch = cosine_scheduler(self.lr, 1e-6, hparams.num_epochs, niter_per_ep//hparams.num_gpus,
-                                       hparams.warmup_epochs)
-        # weight decay scheduler
-        self.wd_sch = cosine_scheduler(hparams.weight_decay_init, hparams.weight_decay_end,
-                                       hparams.num_epochs, niter_per_ep//hparams.num_gpus)
-        # momentum scheduler
-        self.mm_sch = cosine_scheduler(hparams.momentum_teacher, 1.0,
-                                       hparams.num_epochs, niter_per_ep//hparams.num_gpus)
-
-        return self.loader
-
-    def val_dataloader(self):
-        return DataLoader(self.val_dataset,
-                          shuffle=False,
-                          num_workers=hparams.num_workers,
-                          batch_size=1, # validate one image
-                          pin_memory=True)
 
     def training_step(self, batch, batch_idx):
         """
@@ -251,10 +259,10 @@ class DINOSystem(LightningModule):
         opt.zero_grad()
         self.manual_backward(loss)
         # clip gradient
-        if hparams.clip_grad > 0:
-            torch.nn.utils.clip_grad_norm_(self.student.parameters(), hparams.clip_grad)
+        if self.hparams.clip_grad > 0:
+            torch.nn.utils.clip_grad_norm_(self.student.parameters(), self.hparams.clip_grad)
         # cancel gradient for the first epochs
-        if self.current_epoch < hparams.ep_freeze_last_layer:
+        if self.current_epoch < self.hparams.ep_freeze_last_layer:
             for n, p in self.student.named_parameters():
                 if "last_layer" in n:
                     p.grad = None
@@ -273,13 +281,13 @@ class DINOSystem(LightningModule):
     # def validation_step(self, batch, batch_idx):
     #     img_orig, img_norm = batch
 
-    #     w_featmap = img_norm.shape[-1] // hparams.patch_size
-    #     h_featmap = img_norm.shape[-2] // hparams.patch_size
+    #     w_featmap = img_norm.shape[-1] // self.hparams.patch_size
+    #     h_featmap = img_norm.shape[-2] // self.hparams.patch_size
 
     #     atts = self.teacher_backbone.get_last_selfattention(img_norm)
     #     atts = atts[:, :, 0, 1:].reshape(1, -1, h_featmap, w_featmap)
     #     atts = torch.nn.functional.interpolate(atts,
-    #                 scale_factor=hparams.patch_size, mode="nearest")[0] # (6, h, w)
+    #                 scale_factor=self.hparams.patch_size, mode="nearest")[0] # (6, h, w)
 
     #     return {'attentions': atts, 'img': img_orig}
 
@@ -293,7 +301,7 @@ class DINOSystem(LightningModule):
 
 
 if __name__ == '__main__':
-    hparams = get_opts(SMDDP)
+    hparams = get_opts()
     fix_random_seeds(hparams.seed)
     if SMDDP:
         #SageMaker
@@ -314,47 +322,56 @@ if __name__ == '__main__':
         env.global_rank = lambda: int(os.environ['OMPI_COMM_WORLD_RANK'])   
 
         hparams.world_size = int(os.environ.get('OMPI_COMM_WORLD_SIZE'))
-        hparams.num_nodes = hparams.world_size // hparams.gpus
+        hparams.num_nodes = hparams.world_size // hparams.num_gpus
         os.environ['WORLD_SIZE'] = str(os.environ.get('OMPI_COMM_WORLD_SIZE'))
         if os.environ.get('OMPI_COMM_WORLD_LOCAL_RANK') is None:
             os.environ['OMPI_COMM_WORLD_LOCAL_RANK'] = '0'  
-          
+        
         os.environ['WORLD_SIZE'] = str(hparams.world_size)    
-        os.environ['NODE_RANK'] = str(hparams.rank//hparams.gpus)
+        os.environ['NODE_RANK'] = str(hparams.rank//hparams.num_gpus)
         os.environ['RANK']=str(hparams.rank)
         os.environ['LOCAL_RANK']=str(hparams.local_rank)  
+    else:
+        hparams.world_size = hparams.num_gpus * hparams.num_nodes
 
-    system = DINOSystem(hparams)
+    datamodule = DINOData(hparams)
+    datamodule.setup()
+    hparams.niter_per_ep = datamodule.dataset_size // (hparams.world_size * hparams.batch_size) + 1
+    
+    model = DINOSystem(hparams)
 
-    ckpt_cb = ModelCheckpoint(dirpath=f'{hparams.output_dir}/ckpts/{hparams.exp_name}',
+    ckpt_cb = ModelCheckpoint(dirpath=f'{hparams.output_dir}/ckpts/',
                               filename='{epoch:d}',
                               save_top_k=-1)
-    pbar = TQDMProgressBar(refresh_rate=1)
-    callbacks = [ckpt_cb, pbar]
+
+    callbacks = [ckpt_cb]
 
     logger = TensorBoardLogger(save_dir=hparams.output_dir,
-                               name=hparams.exp_name,
+                               name='tensorboard',
                                default_hp_metric=False)
 
     logger2 = CSVLogger(save_dir=hparams.output_dir,
-                               name=hparams.exp_name)
-        
-    ddp = DDPStrategy(
-        cluster_environment=env, 
-        process_group_backend="smddp", 
-        accelerator="gpu"
-    )
+                               name='log_csv')
+
+    if SMDDP:
+        ddp = DDPStrategy(
+            cluster_environment=env, 
+            process_group_backend="nccl", 
+            accelerator="gpu"
+        )
+    else:
+        ddp = DDPStrategy(find_unused_parameters=False) if hparams.num_gpus > 1 else None
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
                       callbacks=callbacks,
                       logger=[logger, logger2],
                       enable_model_summary=False,
                       precision=16 if hparams.fp16 else 32,
-                      accelerator='auto',
+                      accelerator='auto' if not SMDDP else None,
                       devices=hparams.num_gpus,
-                    #   strategy=DDPStrategy(find_unused_parameters=False)
-                    #            if hparams.num_gpus>1 else None,
+                      limit_val_batches = 0,
                       strategy=ddp,
+                      num_nodes = hparams.num_nodes,
                       num_sanity_val_steps=1)
 
-    trainer.fit(system, ckpt_path=hparams.ckpt_path)
+    trainer.fit(model, datamodule=datamodule, ckpt_path=hparams.ckpt_path)

@@ -52,7 +52,7 @@ def get_opts():
                         help='Number of warmup epochs for the teacher temperature.')
 
     # training parameters
-    parser.add_argument('--batch_size', type=int, default=128,
+    parser.add_argument('--batch_size', type=int, default=1,
                         help='batch size per gpu')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers')
@@ -107,5 +107,7 @@ def get_opts():
 
     parser.add_argument('--saveckp_freq', default=1, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')    
+    parser.add_argument('--world_size', default=1, type=int, help='World size.')    
+    parser.add_argument('--num_nodes', default=1, type=int, help='Number of node.')    
 
     return parser.parse_args()
