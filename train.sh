@@ -1,5 +1,5 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python train_sm.py \
-            --num_gpus 8 \
+CUDA_VISIBLE_DEVICES=4,5,6,7 python train_sharding.py \
+            --num_gpus 4 \
             --seed 1 \
             --lr 0.00025 \
             --clip_grad 1 \

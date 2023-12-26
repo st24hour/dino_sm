@@ -9,7 +9,7 @@ from torchvision.utils import make_grid
 from opt import get_opts
 
 # dataset
-from dataset import Patches_Dataset, DataAugmentationDINO, ValTransform
+from dataset import Patches_Dataset, DataAugmentationDINO, ValTransform, Patches_Sharding_Dataset
 from torch.utils.data import DataLoader
 
 # model
@@ -91,6 +91,28 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep,
     assert len(schedule) == epochs * niter_per_ep
     return schedule
 
+#################
+from torch.utils.data import Dataset
+class MyMapDataset(Dataset):
+    
+    def __init__(self, data):
+        self.data = data
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, index):
+        worker = torch.utils.data.get_worker_info()
+        worker_id = worker.id if worker is not None else -1
+        
+        start = time.time()
+        time.sleep(0.1)
+        end = time.time()
+        
+        return self.data[index], worker_id, start, end
+    
+data = range(1000)
+###################################
 
 class DINOData(LightningDataModule):
     def __init__(self, hparams):
@@ -108,8 +130,8 @@ class DINOData(LightningDataModule):
         # split_set = pd.read_csv(split_path)
         # val_slides = ((split_set['val']).dropna()).to_list()
         # test_slides = ((split_set['test']).dropna()).to_list()
-        # total = len(bags_dataset)
-        total = 2
+        total = len(bags_dataset)
+        # total = 10
 
         h5_file_paths, slide_file_paths = [], []
         for bag_candidate_idx in range(total):
@@ -131,33 +153,64 @@ class DINOData(LightningDataModule):
         transform = DataAugmentationDINO(self.params.global_crops_scale,
                                          self.params.local_crops_scale,
                                          self.params.local_crops_number)
-        eval_transform = ValTransform()
-        # self.train_dataset = Patches_Dataset(self.hparams.root_dir, 'train')
-        self.train_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=transform, pretrained=True, split='train')
-        self.val_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=eval_transform, pretrained=True, split='val')
-        
-        self.dataset_size = len(self.train_dataset)
-        print(f'{len(self.train_dataset)} image paths loaded!')
+        # eval_transform = ValTransform()
+        # self.train_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=transform, pretrained=True, split='train')
+        # self.val_dataset = Patches_Dataset(file_paths=h5_file_paths, wsis=slide_file_paths, custom_transforms=eval_transform, pretrained=True, split='val')
+        self.train_dataset = Patches_Sharding_Dataset(self.params, h5_file_paths, slide_file_paths, transform, split='train')
+        # self.train_dataset = MyMapDataset(data)
+
+
+        # self.dataset_size = len(self.train_dataset)
+        # print(f'{len(self.train_dataset)} image paths loaded!')
+        self.dataset_size = len(self.train_dataset.coords)
+        print(f'{len(self.train_dataset.coords)} image paths loaded!')
+
 
         # self.val_dataset = copy.deepcopy(self.train_dataset)
         # self.val_dataset.split = 'val'
 
         ################################################################
+    def worker_init_fn(self, worker_id):
+        worker_info = torch.utils.data.get_worker_info()
+
+        dataset = worker_info.dataset
+        # worker_id = worker_info.id
+        split_size = len(dataset.coords) // worker_info.num_workers
+
+        dataset.coords = dataset.coords[worker_id * split_size: (worker_id + 1) * split_size]
+        dataset.patch_wsi_idx = dataset.patch_wsi_idx[worker_id * split_size: (worker_id + 1) * split_size]
+        
+        # print('rank: ', self.params.rank)
+        # print('worker_id: ', worker_id)
+        # print('num_workers: ', worker_info.num_workers)
+        global_worker_id = worker_id * self.params.world_size + self.params.rank
+        print('global_worker_id: ', global_worker_id)
+
+        dataset.length = len(dataset.coords)
+        print(dataset.length)
+
     def train_dataloader(self):
+        # orin
+        # return DataLoader(self.train_dataset,
+        #                          shuffle=True,
+        #                          num_workers=self.params.num_workers,
+        #                          batch_size=self.params.batch_size,
+        #                          pin_memory=True,
+        #                          drop_last=True)
         return DataLoader(self.train_dataset,
-                                 shuffle=True,
                                  num_workers=self.params.num_workers,
                                  batch_size=self.params.batch_size,
                                  pin_memory=True,
-                                 drop_last=True)
+                                 drop_last=True,
+                                 worker_init_fn=self.worker_init_fn)
 
 
-    def val_dataloader(self):
-        return DataLoader(self.val_dataset,
-                          shuffle=False,
-                          num_workers=self.params.num_workers,
-                          batch_size=1, # validate one image
-                          pin_memory=True)
+    # def val_dataloader(self):
+    #     return DataLoader(self.val_dataset,
+    #                       shuffle=False,
+    #                       num_workers=self.params.num_workers,
+    #                       batch_size=1, # validate one image
+    #                       pin_memory=True)
 
 
 
@@ -334,11 +387,6 @@ if __name__ == '__main__':
     else:
         hparams.world_size = hparams.num_gpus * hparams.num_nodes
 
-    datamodule = DINOData(hparams)
-    datamodule.setup()
-    hparams.niter_per_ep = datamodule.dataset_size // (hparams.world_size * hparams.batch_size) + 1
-    
-    model = DINOSystem(hparams)
 
     ckpt_cb = ModelCheckpoint(dirpath=f'{hparams.output_dir}/ckpts/',
                               filename='{epoch:d}',
@@ -373,5 +421,17 @@ if __name__ == '__main__':
                       strategy=ddp,
                       num_nodes = hparams.num_nodes,
                       num_sanity_val_steps=1)
+
+    if not SMDDP:
+        hparams.rank = trainer.global_rank
+        hparams.local_rank = trainer.node_rank
+        hparams.world_size = trainer.world_size
+
+    # 뒤로 옮김
+    datamodule = DINOData(hparams)
+    datamodule.setup()
+    hparams.niter_per_ep = datamodule.dataset_size // (hparams.world_size * hparams.batch_size) + 1
+    
+    model = DINOSystem(hparams)
 
     trainer.fit(model, datamodule=datamodule, ckpt_path=hparams.ckpt_path)

@@ -1,4 +1,5 @@
-from torch.utils.data import Dataset
+import torch
+from torch.utils.data import Dataset, IterableDataset
 import os
 import glob
 import imageio
@@ -12,6 +13,7 @@ from torchvision import transforms
 import random
 from PIL import Image, ImageFilter, ImageOps
 import h5py
+import time
 
 class Patches_Dataset(Dataset):
     def __init__(self, file_paths, wsis, custom_transforms, pretrained, target_patch_size=-1, split='train'):
@@ -31,11 +33,15 @@ class Patches_Dataset(Dataset):
         else:
             self.roi_transforms = custom_transforms
 
-        self.dset = np.array([], dtype=np.int64).reshape(0,2) #empty array
+        # self.dset = np.array([], dtype=np.int64).reshape(0,2) #empty array
+        self.dset = []
         self.coord_num_list = [] #accumulated number of batches
+
+        start = time.time()
         for idx, h5_file_path in enumerate(self.file_pathes):
             with h5py.File(h5_file_path, "r") as f:
-                self.dset = np.vstack([self.dset, np.array(f['coords'])])
+                # self.dset = np.vstack([self.dset, np.array(f['coords'])])
+                self.dset.append(np.array(f['coords']))
                 self.coord_num_list.append(len(self.dset))
                 self.patch_level = f['coords'].attrs['patch_level']
                 self.patch_size = f['coords'].attrs['patch_size']
@@ -44,8 +50,10 @@ class Patches_Dataset(Dataset):
                     self.target_patch_size = (target_patch_size,) * 2
                 else:
                     self.target_patch_size = None
-            #if idx==1:
-            #    break
+        self.dest = np.vstack(self.dset)
+        print(self.dest.shape)
+        print(time.time()-start)
+
         self.length = len(self.dset)
 
     def __len__(self):
@@ -69,31 +77,74 @@ class Patches_Dataset(Dataset):
                 item = i
                 break
         return item
-    
-class ImageDataset(Dataset):
-    def __init__(self, root, split='train'):
+
+
+class Patches_Sharding_Dataset(IterableDataset):
+    def __init__(self, args, file_paths, wsis, custom_transforms, target_patch_size=-1, split='train'):
+        """
+        Args:
+        file_path (string): List of paths to the .h5 file containing patched data.
+        wsis: List of wsi file paths
+        pretrained (bool): Use ImageNet transforms
+        custom_transforms (callable, optional): Optional transform to be applied on a sample
+        target_patch_size (int): Custom defined image size before embedding
+        """
+        self.args = args
         self.split = split
-        self.image_paths = []
-        # TODO: save image paths to file to avoid reading overhead
-        stamp_idxs = sorted(os.listdir(root))
-        for stamp_idx in stamp_idxs:
-            image_paths = glob.glob(os.path.join(root, f'{stamp_idx}/[0-9]*.png'))
-            image_paths = sorted(filter(lambda x: not 'key' in x, image_paths))
-            self.image_paths += image_paths
+        self.file_pathes = file_paths
+        self.wsis = wsis
+        if not custom_transforms:
+            self.roi_transforms = ValTransform()
+        else:
+            self.roi_transforms = custom_transforms
 
-    def __len__(self):
-        if self.split == 'train':
-            return len(self.image_paths)
-        return 1
+        self.coords = []
+        self.patch_wsi_idx = []
+        for idx, h5_file_path in enumerate(self.file_pathes):
+            with h5py.File(h5_file_path, "r") as f:
+                self.coords.extend(list(f['coords']))
+                self.patch_level = f['coords'].attrs['patch_level']
+                self.patch_size = f['coords'].attrs['patch_size']
+                self.target_patch_size = (target_patch_size,) * 2 if target_patch_size > 0 else None
+                self.patch_wsi_idx.extend([idx]*len(np.array(f['coords'])))
+        self.length = len(self.coords)
 
-    def __getitem__(self, idx):
-        if self.split != 'train': # randomly choose an image for validation
-            idx = np.random.choice(len(self.image_paths), 1)[0]
-        image = imageio.imread(self.image_paths[idx])
-        if image.shape[-1] == 4: # if there is alpha channel
-            image[image[..., -1]==0, :3] = 255 # a=0 to white
-            image = image[..., :3]
-        return self.transform(image)
+
+    def __iter__(self):
+        for patch_wsi_idx, coord in zip(self.patch_wsi_idx, self.coords):
+            wsi = openslide.open_slide(self.wsis[patch_wsi_idx])
+            img = wsi.read_region(location=coord, level=self.patch_level, size=(self.patch_size, self.patch_size)).convert('RGB')
+            if self.target_patch_size is not None:
+                img = img.resize(self.target_patch_size)
+            img = self.roi_transforms(img)#.unsqueeze(0)
+            yield img
+
+
+
+# class ImageDataset(Dataset):
+#     def __init__(self, root, split='train'):
+#         self.split = split
+#         self.image_paths = []
+#         # TODO: save image paths to file to avoid reading overhead
+#         stamp_idxs = sorted(os.listdir(root))
+#         for stamp_idx in stamp_idxs:
+#             image_paths = glob.glob(os.path.join(root, f'{stamp_idx}/[0-9]*.png'))
+#             image_paths = sorted(filter(lambda x: not 'key' in x, image_paths))
+#             self.image_paths += image_paths
+
+#     def __len__(self):
+#         if self.split == 'train':
+#             return len(self.image_paths)
+#         return 1
+
+#     def __getitem__(self, idx):
+#         if self.split != 'train': # randomly choose an image for validation
+#             idx = np.random.choice(len(self.image_paths), 1)[0]
+#         image = imageio.imread(self.image_paths[idx])
+#         if image.shape[-1] == 4: # if there is alpha channel
+#             image[image[..., -1]==0, :3] = 255 # a=0 to white
+#             image = image[..., :3]
+#         return self.transform(image)
 
 # class ValTransform:
 #     def __init__(self):

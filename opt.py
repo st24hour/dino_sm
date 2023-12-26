@@ -52,7 +52,7 @@ def get_opts():
                         help='Number of warmup epochs for the teacher temperature.')
 
     # training parameters
-    parser.add_argument('--batch_size', type=int, default=1,
+    parser.add_argument('--batch_size', type=int, default=128,
                         help='batch size per gpu')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='number of workers')
